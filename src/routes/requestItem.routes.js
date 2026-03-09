@@ -25,6 +25,9 @@ import {
 } from "../validators/requestItem.schema.js";
 import { validate } from "../middleware/validate.js";
 import { authorize } from "../middleware/RBACMiddleware.js";
+import multer from "multer";
+
+const upload = multer({ storage: multer.memoryStorage() });
 
 const router = express.Router();
 
@@ -109,6 +112,7 @@ router.post(
   "/add-quotation",
   authMiddleware,
   authorize("ADMIN, PE"),
+  upload.single("file"),
   validate(quotationSchema),
   addQuotation,
 );
@@ -118,6 +122,7 @@ router.post(
   "/add-invoice",
   authMiddleware,
   authorize("ADMIN, PE"),
+  upload.single("file"),
   validate(invoiceSchema),
   addInvoice,
 );

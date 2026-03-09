@@ -1,4 +1,5 @@
 import { prisma } from "../config/db.js";
+import { supabase } from "../config/supabase.js";
 
 // add items to basket
 export const addItem = async (req, res) => {
@@ -536,15 +537,38 @@ export const warehouseCheck = async (req, res) => {
   }
 };
 
+const quaBucketName = process.env.SUPABASE_QUA_BUCKET || "quotations";
+
 // add quotation per item
 export const addQuotation = async (req, res) => {
   try {
-    const { itemId, price, quoteUrl } = req.body;
+    const { itemId, price } = req.body;
+    const file = req.file;
     const { id: userId } = req.user;
     const iId = parseInt(itemId);
 
+    if (!file)
+      return res.status(400).json({ error: "Quotation PDF file is required" });
+    if (!price) return res.status(400).json({ error: "Price is required" });
+
+    // 1. Upload File to Supabase Storage
+    const fileName = `quotes/item-${iId}-${Date.now()}.pdf`;
+    const { data: uploadData, error: uploadError } = await supabase.storage
+      .from(quaBucketName)
+      .upload(fileName, file.buffer, {
+        contentType: "application/pdf",
+        upsert: true,
+      });
+
+    if (uploadError) throw uploadError;
+
+    // 2. Generate Public URL
+    const {
+      data: { publicUrl },
+    } = supabase.storage.from(quaBucketName).getPublicUrl(fileName);
+
     const result = await prisma.$transaction(async (tx) => {
-      // 1. Get current item and basket for "oldValue" comparison
+      // 3. Fetch current state for audit comparison
       const currentItem = await tx.requestItem.findUnique({
         where: { id: iId },
         include: { requestBasket: true },
@@ -552,16 +576,16 @@ export const addQuotation = async (req, res) => {
 
       if (!currentItem) throw new Error("NOT_FOUND");
 
-      // 2. Update the Item with Quote details
+      // 4. Update the Item with Price and the Supabase URL
       const updatedItem = await tx.requestItem.update({
         where: { id: iId },
         data: {
           price: parseFloat(price),
-          quoteUrl: quoteUrl,
+          quoteUrl: publicUrl,
         },
       });
 
-      // 3. LOG: Audit the Item Quotation
+      // 5. Create Audit Log
       await tx.auditLog.create({
         data: {
           entityName: "RequestItem",
@@ -572,14 +596,11 @@ export const addQuotation = async (req, res) => {
             price: currentItem.price,
             quoteUrl: currentItem.quoteUrl,
           },
-          newValue: {
-            price: updatedItem.price,
-            quoteUrl: updatedItem.quoteUrl,
-          },
+          newValue: { price: updatedItem.price, quoteUrl: publicUrl },
         },
       });
 
-      // 4. Calculate Total Basket Value
+      // 6. Recalculate Basket Total
       const allItems = await tx.requestItem.findMany({
         where: { requestBasketId: updatedItem.requestBasketId },
       });
@@ -589,18 +610,15 @@ export const addQuotation = async (req, res) => {
 
       if (allHavePrices) {
         totalValue = allItems.reduce((sum, item) => {
-          const itemTotal = Number(item.price || 0) * item.quantity;
-          return sum + itemTotal;
+          return sum + Number(item.price || 0) * item.quantity;
         }, 0);
 
-        // 5. Update the Basket
         await tx.requestBasket.update({
           where: { id: updatedItem.requestBasketId },
           data: { totalValue: totalValue },
         });
 
-        // 6. LOG: Audit the Basket Total Update
-        // Only log if the total value actually changed from before
+        // Log total value change if applicable
         if (Number(currentItem.requestBasket.totalValue) !== totalValue) {
           await tx.auditLog.create({
             data: {
@@ -609,11 +627,7 @@ export const addQuotation = async (req, res) => {
               action: "TOTAL_VALUE_UPDATED",
               userId: userId,
               oldValue: { totalValue: currentItem.requestBasket.totalValue },
-              newValue: {
-                totalValue: totalValue,
-                triggeredByItemId: iId,
-                note: "All items now have quotes",
-              },
+              newValue: { totalValue: totalValue, note: "Quotation completed" },
             },
           });
         }
@@ -624,30 +638,51 @@ export const addQuotation = async (req, res) => {
 
     return res.status(200).json({
       message: result.allHavePrices
-        ? `Quotation added. Basket Total updated to: ${result.totalValue}`
-        : "Quotation added to item",
+        ? `Quotation uploaded. Basket total: ${result.totalValue}`
+        : "Quotation uploaded successfully",
       data: result.updatedItem,
     });
   } catch (error) {
-    if (error.message === "NOT_FOUND" || error.code === "P2025") {
-      return res.status(404).json({ error: "Item not found" });
-    }
-    console.error("Quotation Update Error:", error);
+    console.error("Quotation Error:", error);
     return res
       .status(500)
-      .json({ error: "Failed to add quotation and update total" });
+      .json({ error: error.message || "Failed to process quotation" });
   }
 };
+
+const invBucketName = process.env.SUPABASE_INV_BUCKET || "quotations";
 
 // add invoice
 export const addInvoice = async (req, res) => {
   try {
-    const { itemId, invoiceNumber, invoiceUrl } = req.body;
+    const { itemId, invoiceNumber } = req.body;
+    const file = req.file;
     const { id: userId } = req.user;
     const iId = parseInt(itemId);
 
+    if (!file)
+      return res.status(400).json({ error: "Invoice PDF file is required" });
+    if (!invoiceNumber)
+      return res.status(400).json({ error: "Invoice number is required" });
+
+    // 1. Upload File to Supabase Storage
+    const fileName = `invoices/item-${iId}-${Date.now()}.pdf`;
+    const { data: uploadData, error: uploadError } = await supabase.storage
+      .from(invBucketName)
+      .upload(fileName, file.buffer, {
+        contentType: "application/pdf",
+        upsert: true,
+      });
+
+    if (uploadError) throw uploadError;
+
+    // 2. Generate Public URL
+    const {
+      data: { publicUrl },
+    } = supabase.storage.from(invBucketName).getPublicUrl(fileName);
+
     const result = await prisma.$transaction(async (tx) => {
-      // 1. Fetch current state for comparison
+      // 3. Fetch item and basket
       const currentItem = await tx.requestItem.findUnique({
         where: { id: iId },
         include: { requestBasket: true },
@@ -655,16 +690,16 @@ export const addInvoice = async (req, res) => {
 
       if (!currentItem) throw new Error("NOT_FOUND");
 
-      // 2. Update the Item with Invoice details
+      // 4. Update the Item with Invoice Details
       const updatedItem = await tx.requestItem.update({
         where: { id: iId },
         data: {
           invoiceNumber,
-          invoiceUrl,
+          invoiceUrl: publicUrl,
         },
       });
 
-      // 3. LOG: Audit the Item Invoice Attachment
+      // 5. Log Audit
       await tx.auditLog.create({
         data: {
           entityName: "RequestItem",
@@ -672,25 +707,24 @@ export const addInvoice = async (req, res) => {
           action: "ADD_INVOICE",
           userId: userId,
           oldValue: { invoiceNumber: currentItem.invoiceNumber },
-          newValue: {
-            invoiceNumber: updatedItem.invoiceNumber,
-            invoiceUrl: updatedItem.invoiceUrl,
-          },
+          newValue: { invoiceNumber, invoiceUrl: publicUrl },
         },
       });
 
-      // 4. Check if all items in the basket are now invoiced
-      const allItems = await tx.requestItem.findMany({
+      // 6. Check if all items are invoiced (excluding warehouse items)
+      const allItemsInBasket = await tx.requestItem.findMany({
         where: { requestBasketId: updatedItem.requestBasketId },
       });
 
-      const allInvoiced = allItems.every((item) => item.invoiceNumber !== null);
-      let basketUpdated = false;
+      const allInvoiced = allItemsInBasket.every(
+        (item) =>
+          item.inWarehouse ||
+          (item.invoiceNumber !== null && item.invoiceUrl !== null),
+      );
+
+      let basketMovedToHR = false;
 
       if (allInvoiced && currentItem.requestBasket.status !== "MOVE_HR") {
-
-
-        // 6. LOG: Audit the Basket Status Change
         await tx.auditLog.create({
           data: {
             entityName: "RequestBasket",
@@ -698,32 +732,26 @@ export const addInvoice = async (req, res) => {
             action: "STATUS_CHANGE_TO_MOVE_HR",
             userId: userId,
             oldValue: { status: currentItem.requestBasket.status },
-            newValue: {
-              status: "MOVE_HR",
-              reason: "All items successfully invoiced",
-              finalTriggerItem: iId,
-            },
+            newValue: { status: "MOVE_HR", reason: "All invoices received" },
           },
         });
-
-        basketUpdated = true;
+        basketMovedToHR = true;
       }
 
-      return { updatedItem, basketUpdated };
+      return { updatedItem, basketMovedToHR };
     });
 
     return res.status(200).json({
-      message: result.basketUpdated
-        ? "Invoice linked and Basket marked as MOVE_HR"
-        : "Invoice linked successfully",
+      message: result.basketMovedToHR
+        ? "Invoice saved and Basket forwarded to HR."
+        : "Invoice saved successfully",
       data: result.updatedItem,
     });
   } catch (error) {
-    if (error.message === "NOT_FOUND" || error.code === "P2025") {
-      return res.status(404).json({ error: "Item not found" });
-    }
     console.error("Invoice Error:", error);
-    return res.status(500).json({ error: "Failed to add invoice" });
+    return res
+      .status(500)
+      .json({ error: error.message || "Failed to process invoice" });
   }
 };
 

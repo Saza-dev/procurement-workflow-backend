@@ -70,9 +70,8 @@ export const warehouseSchema = z.object({
 // --- QUOTATION ---
 export const quotationSchema = z.object({
   body: z.object({
-    itemId: z.coerce.number().int().positive(),
-    price: z.coerce.number().positive().finite(),
-    quoteUrl: z.string().url().trim(),
+    itemId: z.coerce.number().int().positive("Item ID must be a valid integer"),
+    price: z.coerce.number().positive("Price must be greater than zero").finite(),
   }),
 });
 
@@ -81,7 +80,6 @@ export const invoiceSchema = z.object({
   body: z.object({
     itemId: z.coerce.number().int().positive(),
     invoiceNumber: z.string().min(2).max(50).trim(),
-    invoiceUrl: z.string().url().trim(),
   }),
 });
 
