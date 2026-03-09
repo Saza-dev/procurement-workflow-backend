@@ -1,5 +1,5 @@
 import express from "express";
-import { authMiddleware } from "../../../../procurement/backend/src/middleware/authMiddleware.js";
+import { authMiddleware } from "../middleware/authMiddleware.js";
 import {
   addInvoice,
   addItem,
