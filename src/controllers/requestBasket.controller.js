@@ -40,9 +40,9 @@ export const createRequestBasket = async (req, res) => {
 // view all request baskets
 export const viewAllRequestBaskets = async (req, res) => {
   try {
-    const baskets = await prisma.requestBasket.findMany(
-      {include:{items:true}}
-    );
+    const baskets = await prisma.requestBasket.findMany({
+      include: { items: true },
+    });
 
     if (baskets.length === 0) {
       return res
@@ -63,7 +63,7 @@ export const viewAllRequestBasketsByStatus = async (req, res) => {
     const { status } = req.params;
     const baskets = await prisma.requestBasket.findMany({
       where: { status: status.toUpperCase() },
-      include: { items: true , requester:true,approvals:true },
+      include: { items: true, requester: true, approvals: true },
     });
 
     if (baskets.length === 0) {
@@ -289,5 +289,78 @@ export const splitItemsToNewBasket = async (req, res) => {
     return res
       .status(500)
       .json({ error: error.message || "Failed to split into new basket" });
+  }
+};
+
+// delete basket
+export const DeleteBasket = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { id: userId, role: userRole } = req.user;
+
+    const basketId = parseInt(id);
+
+    // 1. Find the basket to check status and ownership
+    const basket = await prisma.requestBasket.findUnique({
+      where: { id: basketId },
+      include: { items: true }, // Optional: check if items exist
+    });
+
+    if (!basket) {
+      return res.status(404).json({ error: "Request basket not found" });
+    }
+
+    // 2. VALIDATION: Only allow deletion if status is DRAFT
+    if (basket.status !== "DRAFT") {
+      return res.status(403).json({
+        error: "Forbidden: Only baskets in DRAFT status can be deleted.",
+      });
+    }
+
+    // 3. SECURITY: Ensure DH can only delete their own drafts (ADMIN can delete any)
+    if (userRole !== "ADMIN" && basket.requesterId !== userId) {
+      return res.status(403).json({
+        error: "Unauthorized: You can only delete your own draft baskets.",
+      });
+    }
+
+    // 4. TRANSACTION: Delete related data first
+    await prisma.$transaction(async (tx) => {
+      // A. Delete associated RequestItems
+      await tx.requestItem.deleteMany({
+        where: { requestBasketId: basketId },
+      });
+
+      // B. Delete associated Approvals (though drafts usually don't have them)
+      await tx.approval.deleteMany({
+        where: { requestId: basketId },
+      });
+
+      // C. Delete the Basket itself
+      await tx.requestBasket.delete({
+        where: { id: basketId },
+      });
+
+      // D. LOG: Audit the deletion
+      await tx.auditLog.create({
+        data: {
+          entityName: "RequestBasket",
+          entityId: basketId,
+          action: "BASKET_DELETED",
+          userId: userId,
+          oldValue: { title: basket.title, status: basket.status },
+          newValue: { message: "Record removed from database" },
+        },
+      });
+    });
+
+    return res.status(200).json({
+      message: "Draft basket and all associated items deleted successfully",
+    });
+  } catch (error) {
+    console.error("Delete Basket Error:", error);
+    return res
+      .status(500)
+      .json({ error: "Internal server error during deletion" });
   }
 };

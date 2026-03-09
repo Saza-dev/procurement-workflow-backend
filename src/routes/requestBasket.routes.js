@@ -8,6 +8,7 @@ import {
   viewAllRequestBasketsByStatus,
   viewAllRequestBasketsByUserId,
   viewRequestBasketById,
+  DeleteBasket,
 } from "../controllers/requestBasket.controller.js";
 import {
   changeStatusSchema,
@@ -34,6 +35,13 @@ router.get(
   authMiddleware,
   authorize("ADMIN, CEO, PE, FM, OM, HR"),
   viewAllRequestBaskets,
+);
+
+router.delete(
+  "/delete/:id",
+  authMiddleware,
+  authorize("ADMIN, DH"),
+  DeleteBasket,
 );
 
 // show baskets by status
@@ -73,7 +81,7 @@ router.post(
 router.post(
   "/split",
   authMiddleware,
-    authorize("ADMIN, PE, "),
+  authorize("ADMIN, PE, "),
   validate(splitItemsSchema),
   splitItemsToNewBasket,
 );
