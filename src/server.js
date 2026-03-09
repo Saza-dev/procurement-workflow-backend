@@ -23,7 +23,7 @@ app.use(
 
       const isAllowedVercel =
         origin.endsWith(".vercel.app") &&
-        origin.includes("procuement-workflow");
+        origin.includes("procurement-workflow");
       const isLocal = origin === "http://localhost:3000";
 
       if (isAllowedVercel || isLocal) {
