@@ -1,0 +1,133 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  DH  // Dept Head
+  PE  // Procurement Exec
+  FM  // Finance Manager
+  OM  // Ops Manager
+  CEO // CEO
+  HR  // HR
+}
+
+enum RequestStatus {
+  DRAFT
+  SUBMITTED
+  PENDING_APPROVALS
+  REJECTED_REVISION_REQUIRED
+  APPROVED
+  PURCHASED
+  MOVE_HR
+  HANDED_OVER
+  DONE
+}
+
+enum ItemCondition {
+  GOOD
+  DAMAGED
+  RE_PURCHASED
+}
+
+enum ApprovalStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+
+model User {
+  id    Int     @id @default(autoincrement())
+  email String  @unique
+  password  String
+  role Role
+
+  requests       RequestBasket[]  @relation("Requester")
+  approvals      Approval[]
+  auditLogs      AuditLog[]
+}
+
+model RequestBasket{
+  id    Int     @id @default(autoincrement())
+  title String 
+  justification String? 
+
+  status RequestStatus  @default(DRAFT)
+  version Int            @default(1)
+
+  totalValue Decimal?
+  requesterId     Int
+  requester       User           @relation("Requester", fields: [requesterId], references: [id])
+
+  items           RequestItem[]
+  approvals       Approval[]
+
+  parentRequestId Int?
+  parentRequest   RequestBasket?   @relation("SplitHistory", fields: [parentRequestId], references: [id])
+  childRequests   RequestBasket[]  @relation("SplitHistory")
+  
+
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+}
+
+model RequestItem {
+  id              Int            @id @default(autoincrement())
+  title           String
+  description     String
+  quantity        Int
+  targetDate      DateTime
+  isUrgent        Boolean        @default(false)
+
+  price     Decimal?
+  quoteUrl        String?
+
+  invoiceNumber String?  
+  invoiceUrl  String?
+  
+  inWarehouse   Boolean        @default(false)
+
+  tag         String?
+  condition       ItemCondition?
+  
+  requestBasketId       Int
+  requestBasket        RequestBasket  @relation(fields: [requestBasketId], references: [id])
+}
+
+model Approval {
+  id              Int            @id @default(autoincrement())
+  requestId       Int
+  request         RequestBasket  @relation(fields: [requestId], references: [id])
+  
+  approverId      Int
+  approver        User           @relation(fields: [approverId], references: [id])
+  role            Role
+  
+  version         Int
+  status          ApprovalStatus @default(PENDING)
+  comment         String?
+  
+  updatedAt       DateTime       @updatedAt
+}
+
+model AuditLog {
+  id          Int      @id @default(autoincrement())
+  entityName  String    // "RequestBasket", "RequestItem"
+  entityId    Int      
+  action      String   
+  
+
+  oldValue    Json?    
+  newValue    Json?    
+
+  // The user who performed the action
+  userId      Int?
+  user        User?    @relation(fields: [userId], references: [id])
+
+  createdAt   DateTime @default(now())
+}
