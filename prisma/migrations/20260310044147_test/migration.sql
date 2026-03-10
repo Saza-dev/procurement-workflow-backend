@@ -1,11 +1,24 @@
 -- CreateEnum
-CREATE TYPE "RequestStatus" AS ENUM ('DRAFT', 'SUBMITTED', 'PENDING_APPROVALS', 'REJECTED_REVISION_REQUIRED', 'APPROVED', 'PURCHASED', 'FINANCE_RECHECK_REQUIRED', 'HANDED_OVER', 'DONE');
+CREATE TYPE "Role" AS ENUM ('DH', 'PE', 'FM', 'OM', 'CEO', 'HR');
+
+-- CreateEnum
+CREATE TYPE "RequestStatus" AS ENUM ('DRAFT', 'SUBMITTED', 'PENDING_APPROVALS', 'REJECTED_REVISION_REQUIRED', 'APPROVED', 'PURCHASED', 'MOVE_HR', 'HANDED_OVER', 'DONE');
 
 -- CreateEnum
 CREATE TYPE "ItemCondition" AS ENUM ('GOOD', 'DAMAGED', 'RE_PURCHASED');
 
 -- CreateEnum
 CREATE TYPE "ApprovalStatus" AS ENUM ('PENDING', 'APPROVED', 'REJECTED');
+
+-- CreateTable
+CREATE TABLE "User" (
+    "id" SERIAL NOT NULL,
+    "email" TEXT NOT NULL,
+    "password" TEXT NOT NULL,
+    "role" "Role" NOT NULL,
+
+    CONSTRAINT "User_pkey" PRIMARY KEY ("id")
+);
 
 -- CreateTable
 CREATE TABLE "RequestBasket" (
@@ -26,6 +39,7 @@ CREATE TABLE "RequestBasket" (
 -- CreateTable
 CREATE TABLE "RequestItem" (
     "id" SERIAL NOT NULL,
+    "title" TEXT NOT NULL,
     "description" TEXT NOT NULL,
     "quantity" INTEGER NOT NULL,
     "targetDate" TIMESTAMP(3) NOT NULL,
@@ -56,6 +70,23 @@ CREATE TABLE "Approval" (
     CONSTRAINT "Approval_pkey" PRIMARY KEY ("id")
 );
 
+-- CreateTable
+CREATE TABLE "AuditLog" (
+    "id" SERIAL NOT NULL,
+    "entityName" TEXT NOT NULL,
+    "entityId" INTEGER NOT NULL,
+    "action" TEXT NOT NULL,
+    "oldValue" JSONB,
+    "newValue" JSONB,
+    "userId" INTEGER,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT "AuditLog_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateIndex
+CREATE UNIQUE INDEX "User_email_key" ON "User"("email");
+
 -- AddForeignKey
 ALTER TABLE "RequestBasket" ADD CONSTRAINT "RequestBasket_requesterId_fkey" FOREIGN KEY ("requesterId") REFERENCES "User"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
@@ -70,3 +101,6 @@ ALTER TABLE "Approval" ADD CONSTRAINT "Approval_requestId_fkey" FOREIGN KEY ("re
 
 -- AddForeignKey
 ALTER TABLE "Approval" ADD CONSTRAINT "Approval_approverId_fkey" FOREIGN KEY ("approverId") REFERENCES "User"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "AuditLog" ADD CONSTRAINT "AuditLog_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE SET NULL ON UPDATE CASCADE;
