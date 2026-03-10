@@ -11,6 +11,7 @@ import authRoutes from "./routes/auth.routes.js";
 import basketRoutes from "./routes/requestBasket.routes.js";
 import itemsRoutes from "./routes/requestItem.routes.js";
 import approvalRoutes from "./routes/approval.routes.js";
+import chatRoutes from "./routes/chat.routes.js";
 
 connectDB();
 
@@ -47,6 +48,7 @@ app.use("/api/auth", authRoutes);
 app.use("/api/basket", basketRoutes);
 app.use("/api/items", itemsRoutes);
 app.use("/api/approval", approvalRoutes);
+app.use("/api/chat", chatRoutes);
 
 const PORT = process.env.PORT || 5001;
 
